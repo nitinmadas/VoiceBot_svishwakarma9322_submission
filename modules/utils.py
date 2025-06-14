@@ -104,5 +104,6 @@ if __name__ == "__main__":
         transcripts_root='transcripts/Masked Transcripts(212)/',
         bucket_name='salesdata1225',
         output_s3_key='combined_transcript.txt'
+        
     )
 
