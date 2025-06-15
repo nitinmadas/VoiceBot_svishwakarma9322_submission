@@ -5,6 +5,21 @@ import json
 
 # Load environment variables from .env file
 load_dotenv()  # looks for a file named `.env` in the current directory
+import re
+
+def is_hindi(text, config):
+    hindi_chars = len(re.findall(r'[\u0900-\u097F]', text))
+    hindi_word_count = sum(1 for word in config['hindi_keywords'] if word in text.lower())
+    return (hindi_chars > len(text) * config['language_threshold']) or (hindi_word_count >= 2)
+
+def get_context(conversation_history):
+    if not conversation_history:
+        return ""
+    context = "\nRecent chat:\n"
+    for user_msg, bot_msg in conversation_history[-2:]:
+        context += f"User: {user_msg}\nLee: {bot_msg}\n"
+    return context
+
 
 def upload_folder_to_s3(root_folder, bucket_name, s3_prefix):
     """
