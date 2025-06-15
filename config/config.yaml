@@ -1,12 +1,4 @@
 model_id: anthropic.claude-3-sonnet-20240229-v1:0
 max_tokens: 150
 language_threshold: 0.2
-hindi_keywords:
-  - kya
-  - hai
-  - main
-  - mera
-  - aap
-  - hum
-  - kaise
-  - kahan
+

@@ -1,138 +1,78 @@
-# import json
-# import pandas as pd
-# from ragas import evaluate
-# from ragas.metrics import answer_relevancy, faithfulness, context_precision
-# from datasets import Dataset
-# from modules.response_gen import LeeChatbot
-
-# def load_qa_data(filepath):
-#     with open(filepath, 'r') as f:
-#         return json.load(f)
-
-# def evaluate_ragas(file_path="qa2_dataset.json"):
-#     qa_pairs = load_qa_data(file_path)
-
-#     lee = LeeChatbot()
-#     questions = []
-#     answers = []
-#     generated_answers = []
-#     contexts = []
-
-#     for qa in qa_pairs:
-#         question = qa["question"]
-#         expected = qa["answer"]
-#         response = lee.ask(question)
-#         docs = lee.get_documents(question)
-
-#         questions.append(question)
-#         answers.append(expected)
-#         generated_answers.append(response)
-#         contexts.append("\n".join(docs))
-
-#     df = pd.DataFrame({
-#         "question": questions,
-#         "answer": generated_answers,
-#         "contexts": contexts,
-#         "ground_truth": answers
-#     })
-
-#     # Convert to HuggingFace dataset
-#     dataset = Dataset.from_pandas(df)
-
-#     # Evaluate with ragas
-#     results = evaluate(
-#         dataset=dataset,
-#         metrics=[
-#             answer_relevancy,
-#             faithfulness,
-#             context_precision
-#         ]
-#     )
-
-#     print("📊 RAGAS Evaluation Results:\n")
-#     print(results)
-
-# if __name__ == "__main__":
-#     evaluate_ragas()
-'''
 from datasets import Dataset
-import json
-import boto3
-from ragas.metrics import faithfulness, answer_relevancy, context_precision
 from ragas import evaluate
+from ragas.metrics import (
+    context_precision,
+    faithfulness,
+    answer_relevancy,
+    context_recall,
+)
+import boto3
+from langchain_aws import ChatBedrock # <-- IMPORT THE CORRECT CLASS
 
-# Load QA JSON (your `qa2_dataset.json`)
-with open("qa2_dataset.json", "r") as f:
-    qa_data = json.load(f)
+bedrock = boto3.client("bedrock-runtime", region_name="us-west-2")  # Change to your preferred r
 
-# Convert to HuggingFace Dataset format
-dataset = Dataset.from_list([
-    {
-        "question": item["question"],
-        "answer": item["answer"],
-        "contexts": [],  # Add retrieved context here if available
-        "ground_truth": item["answer"]
-    }
-    for item in qa_data
-])
-
-# AWS Bedrock LLM using boto3 client
-bedrock_client = boto3.client("bedrock-runtime")
-
-# Run RAGAS Evaluation
-result = evaluate(
-    dataset,
-    metrics=[faithfulness, answer_relevancy, context_precision],
+llm = ChatBedrock(
+    # Ensure your AWS credentials are configured (e.g., via environment variables)
+    region_name="us-west-2",  # Change to your preferred region if needed
+    model_id="anthropic.claude-3-sonnet-20240229-v1:0", # <-- CORRECT MODEL ID
+    model_kwargs={"temperature": 0.0} # Pass model parameters here
 )
 
-# Print Results
-print(result)
-'''
-
 import json
-from response_gen import LeeChatbot
-from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
+from retriever import KnowledgeRetriever
+lee = KnowledgeRetriever()
 
-# Load your model for similarity (semantic embedding model)
-model = SentenceTransformer('all-MiniLM-L6-v2')  # You can choose another
+# Load QA data
+with open("qa2_dataset.json", "r", encoding="utf-8") as f:
+    qa_data = json.load(f)
 
-# Load ground truth dataset
-with open('data/q2_dataset.json', 'r') as f:
-    gt_data = json.load(f)
 
-# Initialize agent
-chatbot = LeeChatbot()
+questions, answers, ground_truths, contexts = [], [], [], []
 
-# Evaluation storage
-results = []
+from response_gen import agent
+counter = 0
+config = {"configurable": {"thread_id": "lendencol-thread-3"}}
 
-for item in tqdm(gt_data, desc="Evaluating"):
-    question = item['question']
-    true_answer = item['answer']
+for item in qa_data:
+    question = item["question"]
+    gt = item["answer"]
+    ctx = lee.retrieve_documents(question)
+    response = agent.invoke(    
+             {"messages": [{"role": "user", "content": str(question)}]},
+             config=config
+                )  # Ensure it's string
 
-    # Clear chat history before each run
-    chatbot.clear_history()
+    ans = response["messages"][-1].content
+    
 
-    # Generate agent answer
-    generated_answer = chatbot.ask(question)
+    questions.append(question)
+    ground_truths.append(gt)
+    contexts.append(ctx)
+    answers.append(ans)
 
-    # Calculate semantic similarity
-    embeddings = model.encode([true_answer, generated_answer])
-    score = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+    print(f"{counter} Question: {question}\nAnswer: {ans}")
+    counter += 1
+# Build dataset
+data = {
+    "question": questions,
+    "answer": answers,
+    "contexts": contexts,
+    "reference": ground_truths,
+}
+# Optionally export the data to a JSON file for inspection
+with open("ragas_eval_data.json", "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+dataset = Dataset.from_dict(data)
 
-    results.append({
-        'question': question,
-        'ground_truth': true_answer,
-        'generated': generated_answer,
-        'similarity_score': score
-    })
 
-# Save results
-with open('evaluation_results.json', 'w') as f:
-    json.dump(results, f, indent=2)
 
-# Print average score
-avg_score = sum([r['similarity_score'] for r in results]) / len(results)
-print(f"Average Semantic Similarity Score: {avg_score:.4f}")
+result = evaluate(
+    dataset=dataset,
+    metrics=[context_precision, faithfulness, answer_relevancy, context_recall],
+    llm=llm
+)
+
+
+print(result.to_pandas().T)
+# Save the evaluation results to a CSV file
+result.to_pandas().to_csv("ragas_evaluation_results.csv", index=False)

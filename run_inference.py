@@ -1,5 +1,5 @@
 import pandas as pd
-from modules.response_gen import LeeChatbot
+from modules.response_gen import agent
 import os
 import datetime
 import time
@@ -27,21 +27,29 @@ def run_inference():
         return
     delay = 1  # seconds
     print(f"⏳ Each query will be delayed by {delay} second(s) to avoid rapid requests.")
-    lee = LeeChatbot()
     responses = []
+    
+    config = {"configurable": {"thread_id": "lendencol-thread-2"}}
 
     for question in df['Questions']:
-        response = lee.ask(str(question))  # Ensure it's string
-        responses.append(response)
+        response = agent.invoke(    
+             {"messages": [{"role": "user", "content": str(question)}]},
+             config=config
+                )  # Ensure it's string
+
+        responses.append(response["messages"][-1].content)
         print(f"Question: {question}\nResponse: {response}\n")
 
     df['Responses'] = responses
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = f"output/predictions_{timestamp}.csv"
-    time.sleep(1)  # Add a 1 second delay to avoid rapid requests
+    time.sleep(delay)  # Add a 1 second delay to avoid rapid requests
     df.to_csv(output_path, index=False)
     print(f"✅ Inference complete. Output saved to {output_path}")
 
 if __name__ == "__main__":
     run_inference()
+
+
+
